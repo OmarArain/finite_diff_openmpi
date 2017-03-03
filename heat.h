@@ -1,5 +1,8 @@
 #ifndef _HEAT_H
 #define _HEAT_H
+#define DEL_G 1
+#define DEL_T 1
+
 
 //initialize 3d matrix with continuous block of data in memory
 double *** matrix_3d(int x, int y, int z);
