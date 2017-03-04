@@ -1,6 +1,7 @@
 #include "heat.h"
+#include "Matrix.h"
 
-void gaussian_3d(int dim, double mean, double var, double*** M, 
+void gaussian_3d(int dim, double mean, double var, Matrix3d &M, 
 									int xsize, int ysize, int zsize)
 {
 	double sigma_x = var;
@@ -20,7 +21,7 @@ void gaussian_3d(int dim, double mean, double var, double*** M,
 			for(int k=0; j<zsize; ++k)
 			{
 				int _z_term = (k - mu_z)*(k - mu_z) * sigma_z;
-				M[i][j][k] = (1/(2*pi))*exp*(-.5*(_x_term+_y_term+_z_term));
+				M(i,j,k) = (1/(2*pi))*exp*(-.5*(_x_term+_y_term+_z_term));
 			}
 		}
 	}
