@@ -3,51 +3,36 @@
 #include <iostream>
 #include "Matrix.h"
 #include "mpi.h"
+#include <math.h>
 #define DEBUG
 #define ALPHA .00001
-#define XMAX 100
+#define XMAX 2.
 #define PROCS_PER_DIM 2
 #define IMAX 3 //1000
-#define DT 1
+#define DT .5
 #define TMAX 2
-#define TOUTPUT 10
+#define TOUTPUT 1
 #define NDIMS 3
 #define SENDTAG 999
-#define RECVTAG 1000
 #define DEBUGRANK 4
+#define BOUNDARY_T 0
 using namespace std;
 
-inline void initialize_matrix_test(Matrix3d<double>& M, int xstart, int ystart, int zstart)
+void print_output(Matrix3d<double> &M, int mpi_rank_l)
 {
-  int xmax = M.xsize();
-  int ymax = M.ysize();
-  int zmax = M.zsize();
-  int data_ix_l = 0;
-  for(int x=0; x<xmax; ++x)
-  {
-    for(int y=0; y<ymax; ++y)
-    {
-      for(int z=0; z<zmax; ++z)
-      {
-        M(x,y,z) = data_ix_l++;
-      }
-    }
-  }
+  cout<<"hi"<<endl;
 }
 
-void exchange_ghost_cells(int * mpi_nbrs[6], int mpi_rank_l, Matrix3d<double>& data_l, 
-                          MPI_Request mpi_sreqs[6], MPI_Request mpi_rreqs[6])
+void exchange_ghost_cells_and_print(int * mpi_nbrs[6], int mpi_rank_l, 
+                          Matrix3d<double>& data_l, MPI_Request mpi_sreqs[6], 
+                          MPI_Request mpi_rreqs[6])
 {
   for (int i = 0; i<6; i++)
     {
       if(*(mpi_nbrs[i]) >= 0 )
       {
-        #ifdef DEBUG
-        if(mpi_rank_l==DEBUGRANK) cout<<"Sending to *(mpi_nbrs[i]:"<<*(mpi_nbrs[i])<<endl;
-        #endif
         MPI_Isend(&(data_l[i]), 1, MPI_DOUBLE, *(mpi_nbrs[i]),
                   SENDTAG, MPI_COMM_WORLD, &(mpi_sreqs[i]));
-        //++mpi_msg_send_pending;
       }
       else { mpi_sreqs[i] = MPI_REQUEST_NULL; }
     }
@@ -56,22 +41,12 @@ void exchange_ghost_cells(int * mpi_nbrs[6], int mpi_rank_l, Matrix3d<double>& d
     {
       if(*(mpi_nbrs[i]) >= 0 )
       {
-        #ifdef DEBUG
-        if(mpi_rank_l==DEBUGRANK) cout<<"Recving to *(mpi_nbrs[i]:"<<*(mpi_nbrs[i])<<endl;
-        #endif  
         MPI_Irecv(&(data_l[i+6]), 1, MPI_DOUBLE, *(mpi_nbrs[i]),
                   SENDTAG, MPI_COMM_WORLD, &(mpi_rreqs[i]));
-        //++mpi_msg_recv_pending;
       }
       else { mpi_rreqs[i] = MPI_REQUEST_NULL; }
     }
-    // #ifdef DEBUG
-    // if(mpi_rank_l == DEBUGRANK) cout<<mpi_rank_l<<" Waiting for sends..."<<endl; 
-    // #endif
     MPI_Waitall(6, mpi_sreqs, MPI_STATUSES_IGNORE);
-    // #ifdef DEBUG
-    // if(mpi_rank_l == DEBUGRANK) cout<<mpi_rank_l<<" Waiting for recvs..."<<endl;  
-    // #endif
     MPI_Waitall(6, mpi_rreqs, MPI_STATUSES_IGNORE);
     #ifdef DEBUG
      cout<<mpi_rank_l<<" DONE"<<endl;  
@@ -94,8 +69,8 @@ inline void calculate_matrix_test(Matrix3d<double> &M)
 int main(int argc, char **argv)
 {
   /* calculation related variables*/
-  int imax      = IMAX;                // num gridpoints per side per proc
-  int dt        = DT;                  // delta time 
+  int imax      = IMAX;                // num gridpoints per side
+  double dt     = DT;                  // delta time 
   int tmax      = TMAX;                // total num of timesteps
   int toutput   = TOUTPUT;             //timesteps to output results
   int procs_per_dim   = PROCS_PER_DIM; //num processes per side 
@@ -104,7 +79,7 @@ int main(int argc, char **argv)
   if (argc==6)
   {
     imax      = atoi(argv[1]);         // num gridpoints per side per proc
-    dt        = atoi(argv[2]);         // delta time 
+    dt        = atof(argv[2]);         // delta time 
     tmax      = atoi(argv[3]);         // total num of timesteps
     toutput   = atoi(argv[4]);         //timesteps to output results
     procs_per_dim   = atoi(argv[5]);   //num processes per side
@@ -112,14 +87,14 @@ int main(int argc, char **argv)
 
   /* more calculation realated vars*/
   int ndims = NDIMS;
+  int imax_l = imax/procs_per_dim;
   double alpha  = ALPHA;
   double xmax, ymax, zmax;
   xmax = ymax = zmax = XMAX;
-  double boundaryT = 0;
-  double dx = xmax / ((double) imax * procs_per_dim);
-  Matrix3d<double> data_l(imax+2, imax+2, imax+2); //wrapper over std::vector, contiguous, ROW MAJOR
-  Matrix3d<double> ghost_cells[6]; //array of ghost cell arrays
-  int data_ix_l = 0;
+  double boundary_t = BOUNDARY_T;
+  double dx = xmax / ((double) imax );
+  //wrapper over std::vector, contiguous, ROW MAJOR
+  Matrix3d<double> data_l(imax_l+2, imax_l+2, imax_l+2); 
 
   // Check stability
   if (((alpha*dt)/(dx*dx*dx)) >= (.125))
@@ -265,7 +240,7 @@ int main(int argc, char **argv)
   /* CALC LOOP */
   for(int t = 0; t<tmax; t+=dt)
   {
-    exchange_ghost_cells(mpi_nbrs, mpi_rank_l, data_l, mpi_sreqs, mpi_rreqs);
+    exchange_ghost_cells_and_print(mpi_nbrs, mpi_rank_l, data_l, mpi_sreqs, mpi_rreqs);
     calculate_matrix_test(data_l);
   }
     // if t is a multiple of touput, write to file (not the ghost cells!)
