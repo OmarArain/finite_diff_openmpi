@@ -105,6 +105,7 @@ int main(int argc, char **argv)
   // Get command line parameters
   if (argc==6)
   {
+    cout<<"ghi"<<endl;
     imax      = atoi(argv[1]);         // num gridpoints per side per proc
     dt        = atof(argv[2]);         // delta time 
     tmax      = atoi(argv[3]);         // total num of timesteps

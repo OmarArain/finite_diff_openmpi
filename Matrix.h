@@ -101,9 +101,9 @@ public:
   		double xup, xdn, yup, ydn, zup, zdn, tn0, tn1;
   		for (int x=1; x<_xsize-1; x++)
   		{
-  			for (int y=1; y<_xsize-1; y++)
+  			for (int y=1; y<_ysize-1; y++)
   			{
-  				for (int z=1; z<_xsize-1; z++)
+  				for (int z=1; z<_zsize-1; z++)
   				{
   					xup = (*this)(x+1, y, z);
   					xdn = (*this)(x-1, y, z);
