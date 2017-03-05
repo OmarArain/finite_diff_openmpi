@@ -265,7 +265,7 @@ int main(int argc, char **argv)
                           data_l, mpi_sreqs, 
                           mpi_rreqs, send_offsets, recv_offsets,
                           mpi_types, t, toutput);
-    calculate_matrix_test(data_l, mpi_rank_l);
+    data_l.calc_heat_equation(dx, dt, alpha);
   }
 
     MPI_Finalize();
