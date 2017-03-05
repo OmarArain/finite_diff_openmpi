@@ -42,15 +42,15 @@ public:
 	  int ymax = _ysize-1;
 	  int zmax = _zsize-1;
 		double pi   = 3.14159;
-		for (int i=1; i<xmax; ++i)
+		for (int i=0; i<xmax; ++i)
 		{
 			double _x = (i+xstart_ix)*gridsize;
 			double _x_term = (_x - mu_x)*(_x - mu_x) * sigma_x;
-			for(int j=1; j<ymax; ++j)
+			for(int j=0; j<ymax; ++j)
 			{	
 				double _y = (j+ystart_ix)*gridsize;
 				double _y_term = (_y - mu_y)*(_y - mu_y) * sigma_y;
-				for(int k=1; k<zmax; ++k)
+				for(int k=0; k<zmax; ++k)
 				{	
 					double _z = (k+zstart_ix)*gridsize;
 					double _z_term = (_z - mu_z)*(_z - mu_z) * sigma_z;
