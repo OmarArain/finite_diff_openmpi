@@ -8,3 +8,6 @@ test: test.cpp Matrix.h
 clean:
 	-rm heat
 	-rm test
+clean_output:
+	-rm images/*
+	-rm output/*

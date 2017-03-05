@@ -5,43 +5,68 @@
 #include "mpi.h"
 #include <math.h>
 #define DEBUG
-#define ALPHA .00001
+#define ALPHA .000001
 #define XMAX 2.
 #define PROCS_PER_DIM 2
-#define IMAX 3 //1000
-#define DT .5
+#define IMAX 100 //1000
+#define DT 1
 #define TMAX 2
 #define TOUTPUT 1
 #define NDIMS 3
 #define SENDTAG 999
 #define DEBUGRANK 4
 #define BOUNDARY_T 0
+#define MEAN_T 1.
+#define VAR_T .2
 using namespace std;
 
-void print_output(Matrix3d<double> &M, int mpi_rank_l)
+void print_output(Matrix3d<double> &M, int mpi_rank_l,
+                   MPI_Datatype * io_subarray, MPI_Datatype * interior,
+                   int timestep)
 {
-  cout<<"hi"<<endl;
+  MPI_File mpi_file;
+  MPI_Status mpi_status;
+  string fileroot = "output/heat_output_" + to_string(timestep);
+  string file = fileroot + ".bin";
+  MPI_File_open(MPI_COMM_WORLD, file.c_str(),
+                MPI_MODE_CREATE|MPI_MODE_WRONLY,
+                MPI_INFO_NULL, &mpi_file);
+  MPI_File_set_view(mpi_file, 0, MPI_DOUBLE, *io_subarray, 
+                     "native", MPI_INFO_NULL);
+
+  MPI_File_write_all(mpi_file, &(M[0]), 1, *interior, &mpi_status);
+  MPI_File_close(&mpi_file);
 }
 
-void exchange_ghost_cells_and_print(int * mpi_nbrs[6], int mpi_rank_l, 
+void exchange_ghost_cells_and_print(
+                          int * mpi_nbrs[6], int mpi_rank_l, 
                           Matrix3d<double>& data_l, MPI_Request mpi_sreqs[6], 
-                          MPI_Request mpi_rreqs[6])
+                          MPI_Request mpi_rreqs[6], int send_offsets[], int recv_offsets[],
+                          MPI_Datatype *mpi_types[], int timestep, int toutput)
 {
+  MPI_Datatype *interior = mpi_types[6];
+  MPI_Datatype *io_subarray = mpi_types[7];
   for (int i = 0; i<6; i++)
     {
       if(*(mpi_nbrs[i]) >= 0 )
       {
-        MPI_Isend(&(data_l[i]), 1, MPI_DOUBLE, *(mpi_nbrs[i]),
+        int offset = send_offsets[i];
+        MPI_Datatype *mpi_type = mpi_types[i];
+        MPI_Isend(&(data_l[offset]), 1, *mpi_type, *(mpi_nbrs[i]),
                   SENDTAG, MPI_COMM_WORLD, &(mpi_sreqs[i]));
       }
       else { mpi_sreqs[i] = MPI_REQUEST_NULL; }
     }
 
+  if ((timestep%toutput) == 0)
+      print_output(data_l, mpi_rank_l, io_subarray, interior, timestep);
   for (int i = 0; i<6; i++)
     {
       if(*(mpi_nbrs[i]) >= 0 )
       {
-        MPI_Irecv(&(data_l[i+6]), 1, MPI_DOUBLE, *(mpi_nbrs[i]),
+        int offset = recv_offsets[i];
+        MPI_Datatype *mpi_type = mpi_types[i];
+        MPI_Irecv(&(data_l[offset]), 1, *mpi_type, *(mpi_nbrs[i]),
                   SENDTAG, MPI_COMM_WORLD, &(mpi_rreqs[i]));
       }
       else { mpi_rreqs[i] = MPI_REQUEST_NULL; }
@@ -55,16 +80,15 @@ void exchange_ghost_cells_and_print(int * mpi_nbrs[6], int mpi_rank_l,
 }
 
 
-inline void calculate_matrix_test(Matrix3d<double> &M)
+inline void calculate_matrix_test(Matrix3d<double> &M, int mpi_rank_l)
 {
   int xmax = M.xsize();
   int ymax = M.ysize();
   int zmax = M.zsize();
-  int data_ix_l = 0;
   for(int x=0; x<xmax; ++x)
     for(int y=0; y<ymax; ++y)
       for(int z=0; z<zmax; ++z)
-        M(x,y,z) = 100+data_ix_l++;
+        M(x,y,z) += mpi_rank_l;
 }
 int main(int argc, char **argv)
 {
@@ -73,7 +97,10 @@ int main(int argc, char **argv)
   double dt     = DT;                  // delta time 
   int tmax      = TMAX;                // total num of timesteps
   int toutput   = TOUTPUT;             //timesteps to output results
-  int procs_per_dim   = PROCS_PER_DIM; //num processes per side 
+  int procs_per_dim   = PROCS_PER_DIM; //num processes per side
+  double mean_t= MEAN_T;
+  double var_t = VAR_T;
+
 
   // Get command line parameters
   if (argc==6)
@@ -93,14 +120,15 @@ int main(int argc, char **argv)
   xmax = ymax = zmax = XMAX;
   double boundary_t = BOUNDARY_T;
   double dx = xmax / ((double) imax );
+  int actual_time = 0;
   //wrapper over std::vector, contiguous, ROW MAJOR
   Matrix3d<double> data_l(imax_l+2, imax_l+2, imax_l+2); 
 
   // Check stability
-  if (((alpha*dt)/(dx*dx*dx)) >= (.125))
+  if ( ((alpha*dt)/(dx*dx*dx)) >= (.125))
   {
     cout<<"Stability condition failed: "<<((alpha*dt)/(dx*dx*dx));
-    cout<<"< .125"<<endl;
+    cout<<"> .125"<<endl;
     return EXIT_FAILURE;
   }
   /* MPI related vars */
@@ -120,7 +148,26 @@ int main(int argc, char **argv)
   int * mpi_nbrs[6] = { &mpi_nbr_xup_l, &mpi_nbr_xdn_l, 
                         &mpi_nbr_yup_l, &mpi_nbr_ydn_l, 
                         &mpi_nbr_zup_l, &mpi_nbr_zdn_l };
-
+  // datatypes
+  MPI_Datatype xslice, yslice, zslice, interior, io_subarray;
+  MPI_Datatype * mpi_types[8] = { &xslice, &xslice,
+                                  &yslice, &yslice,
+                                  &zslice, &zslice,
+                                  &interior, &io_subarray };
+  //offsets of ACTUAL BORDERS OF ARRAY
+  int send_offsets[6] = { (imax_l+2) * (imax_l+2) * (imax_l+2-2), // ydim*zdim*xrow
+                          (imax_l+2) * (imax_l+2) * (1),          // ydim*zdim*xrow
+                          (imax_l+2) * (imax_l+2-2),              //zdim*yrow
+                          (imax_l+2) * (1),                       //zdim*yrow
+                          (imax_l+2-2),                           //zrow
+                          (1)};                                   //zrow
+  //offsets of GHOST CELLS OF ARRAY
+  int recv_offsets[6]   { (imax_l+2) * (imax_l+2) * (imax_l+2-1), // ydim*zdim*xrow
+                          (imax_l+2) * (imax_l+2) * (0),          // ydim*zdim*xrow
+                          (imax_l+2) * (imax_l+2-1),              //zdim*yrow
+                          (imax_l+2) * (0),                       //zdim*yrow
+                          (imax_l+2-1),                           //zrow
+                          (0)};                                   //zrow
   // send requests
   MPI_Request mpi_sreqs[6] = {MPI_REQUEST_NULL};
   //recv requests
@@ -131,89 +178,6 @@ int main(int argc, char **argv)
   MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
   MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank_l);
 
-
-  // Create border datatypes 
-  MPI_Datatype border_xup, border_xdn,
-               border_yup, border_ydn,
-               border_zup, border_zdn;
-  int mpi_subarray_bigsizes[3] = {imax, imax, imax};
-  //xupborder
-  {
-    int mpi_subarray_subsizes[3] =  {1, imax, imax};
-    int mpi_subarray_starts[3]   =  {imax-1, 0, 0};
-    MPI_Type_create_subarray(ndims, mpi_subarray_bigsizes, 
-                          mpi_subarray_subsizes, mpi_subarray_starts, 
-                          MPI_ORDER_C, MPI_DOUBLE, &border_xup);
-    MPI_Type_commit(&border_xup);
-  }
-  // xdnborder
-  {
-    int mpi_subarray_subsizes[3] = {1, imax, imax};
-    int mpi_subarray_starts[3]   = {0, 0, 0};
-    MPI_Type_create_subarray(ndims, mpi_subarray_bigsizes, 
-                          mpi_subarray_subsizes, mpi_subarray_starts, 
-                          MPI_ORDER_C, MPI_DOUBLE, &border_xdn);
-    MPI_Type_commit(&border_xdn);
-  }
-  //yupborder
-  {
-    int mpi_subarray_subsizes[3] = {imax, 1, imax};
-    int mpi_subarray_starts[3]   = {0, imax-1, 0 };
-    MPI_Type_create_subarray(ndims, mpi_subarray_bigsizes, 
-                          mpi_subarray_subsizes, mpi_subarray_starts, 
-                          MPI_ORDER_C, MPI_DOUBLE, &border_yup);
-    MPI_Type_commit(&border_yup);
-  }
-  // ydnborder
-  {
-    int mpi_subarray_subsizes[3] = {imax, 1, imax};
-    int mpi_subarray_starts[3]   = {0, 0, 0};
-    MPI_Type_create_subarray(ndims, mpi_subarray_bigsizes, 
-                          mpi_subarray_subsizes, mpi_subarray_starts, 
-                          MPI_ORDER_C, MPI_DOUBLE, &border_ydn);
-    MPI_Type_commit(&border_ydn);
-  }
-  // zupborder
-  {
-    int mpi_subarray_subsizes[3] = {imax, imax, 1};
-    int mpi_subarray_starts[3]   = {0, 0, imax-1};
-    MPI_Type_create_subarray(ndims, mpi_subarray_bigsizes, 
-                          mpi_subarray_subsizes, mpi_subarray_starts, 
-                          MPI_ORDER_C, MPI_DOUBLE, &border_zup);
-    MPI_Type_commit(&border_zup);
-  }
-  // zdnborder
-  {
-    int mpi_subarray_subsizes[3] = {imax, imax, 1};
-    int mpi_subarray_starts[3]   = {0, 0, 0};
-    MPI_Type_create_subarray(ndims, mpi_subarray_bigsizes, 
-                          mpi_subarray_subsizes, mpi_subarray_starts, 
-                          MPI_ORDER_C, MPI_DOUBLE, &border_zdn);
-    MPI_Type_commit(&border_zdn);
-  }
-
-  // check that num processors make sense
-  if (mpi_size!=(procs_per_dim*procs_per_dim*procs_per_dim))
-  {
-    printf("MPI size: %d does not match procs_per_dim:%d^3 \n", 
-            mpi_size, procs_per_dim);
-    MPI_Abort(MPI_COMM_WORLD, 1);
-  }
-
-// #ifdef DEBUG  
-//   if(mpi_rank_l == DEBUGRANK)
-//   {
-//     cout<<"imax: "<<imax<<endl;
-//     cout<<"dt: "<<dt<<endl;
-//     cout<<"tmax: "<<tmax<<endl;
-//     cout<<"toutput: "<<toutput<<endl;
-//     cout<<"num_proc: "<<procs_per_dim<<endl;
-//     cout<<"alpha: "<<alpha<<endl;
-//     cout<<"xmax,ymax,zmax: "<<xmax<<endl;
-//     cout<<"boundaryT: "<<boundaryT<<endl;
-//   }
-// #endif
-
   // Create MPI Cartesian topology
   MPI_Cart_create(MPI_COMM_WORLD, ndims, mpi_cart_dim, 
                   mpi_cart_period, true, &mpi_comm);
@@ -223,28 +187,86 @@ int main(int argc, char **argv)
   MPI_Cart_shift(mpi_comm, 1, 1, &mpi_nbr_ydn_l, &mpi_nbr_yup_l);
   MPI_Cart_shift(mpi_comm, 2, 1, &mpi_nbr_zdn_l, &mpi_nbr_zup_l);
 
-  // #ifdef DEBUG
-  // printf("mpi_size: %d\n", mpi_size);
-  // printf("Rank %d coordinates are %d %d %d\n", 
-  //         mpi_rank_l, mpi_coords_l[0],
-  //         mpi_coords_l[1], mpi_coords_l[2]);
-  // printf("neighbors: xup: %d xdn: %d yup: %d ydn: %d zup: %d zdn: %d\n",
-  //       mpi_nbr_xup_l, mpi_nbr_xdn_l, 
-  //       mpi_nbr_yup_l, mpi_nbr_ydn_l,
-  //       mpi_nbr_zup_l, mpi_nbr_zdn_l);
-  // fflush(stdout);
-  // #endif
+  // Create slice datatypes, interior, and io_subarray for filewriting
+  
+  MPI_Type_vector(1, (imax_l+2)*(imax_l+2), (imax_l+2)*(imax_l+2), 
+                  MPI_DOUBLE, &xslice);
+  MPI_Type_vector((imax_l+2), (imax_l+2), (imax_l+2)*(imax_l+2),
+                  MPI_DOUBLE, &yslice);
+  MPI_Type_vector((imax_l+2)*(imax_l*2), 1, (imax_l+2), 
+                  MPI_DOUBLE, &zslice);
+
+  int global_sizes_i[3] = {imax_l+2, imax_l+2, imax_l+2};
+  int local_sizes_i[3] = {imax_l, imax_l, imax_l};
+  int starts_i[3] = {1, 1, 1};
+  MPI_Type_create_subarray(3, global_sizes_i, local_sizes_i, 
+                          starts_i, MPI_ORDER_C, 
+                          MPI_DOUBLE, &interior);
+
+  int global_sizes_f[3] = { imax_l*procs_per_dim, 
+                            imax_l*procs_per_dim, 
+                            imax_l*procs_per_dim };
+  int local_sizes_f[3] = {imax_l, imax_l, imax_l};
+  int starts_f[3] = { mpi_coords_l[0]*imax_l, 
+                      mpi_coords_l[1]*imax_l, 
+                      mpi_coords_l[2]*imax_l};
+  MPI_Type_create_subarray(3, global_sizes_f, local_sizes_f, 
+                          starts_f, MPI_ORDER_C, 
+                          MPI_DOUBLE, &io_subarray);
+
+  MPI_Type_commit(&xslice);
+  MPI_Type_commit(&yslice);
+  MPI_Type_commit(&zslice);
+  MPI_Type_commit(&interior);
+  MPI_Type_commit(&io_subarray);
+
+//FILE IO TEST
+  // MPI_File mpi_file;
+  // MPI_Status mpi_status;
+  // string fileroot = "output/heat_output";
+  // int offset_l = (mpi_coords_l[0]*imax_l*global_sizes_f[1]*global_sizes_f[2]
+  //               + mpi_coords_l[1]*imax_l*global_sizes_f[2]
+  //               + mpi_coords_l[2]*imax_l)*sizeof(double);
+
+  // MPI_File_open(MPI_COMM_WORLD, "iotest.txt",
+  //               MPI_MODE_CREATE|MPI_MODE_WRONLY,
+  //               MPI_INFO_NULL, &mpi_file);
+  // MPI_File_set_view(mpi_file, 0, MPI_DOUBLE, io_subarray, 
+  //                    "native", MPI_INFO_NULL);
+
+  // check that num processors make sense
+  if (mpi_size!=(procs_per_dim*procs_per_dim*procs_per_dim))
+  {
+    printf("MPI size: %d does not match procs_per_dim:%d^3 \n", 
+            mpi_size, procs_per_dim);
+    MPI_Abort(MPI_COMM_WORLD, 1);
+  }
+
   //initialize matrix
-  initialize_matrix_test(data_l, 1, 1, 1);
+  int _i_xstart, _i_ystart, _i_zstart;
+  _i_xstart = mpi_coords_l[0]*imax_l;
+  _i_ystart = mpi_coords_l[1]*imax_l;
+  _i_zstart = mpi_coords_l[2]*imax_l;
+  data_l.set_gaussian_interior(mean_t, var_t, dx, 
+                                _i_xstart, _i_ystart, _i_zstart);
+  data_l.reset_boundaries(boundary_t);
+
+  // //test write
+  // MPI_File_write_all(mpi_file, &(data_l[0]), 1, interior, &mpi_status);
+  // //MPI_File_write_all(mpi_file, &mpi_rank_l, 1, MPI_INT, &mpi_status);
+  // MPI_File_close(&mpi_file);
 
   /* CALC LOOP */
-  for(int t = 0; t<tmax; t+=dt)
+  for(int t = 0; t<tmax; t++)
   {
-    exchange_ghost_cells_and_print(mpi_nbrs, mpi_rank_l, data_l, mpi_sreqs, mpi_rreqs);
-    calculate_matrix_test(data_l);
+    actual_time += dt;
+    exchange_ghost_cells_and_print(
+                          mpi_nbrs, mpi_rank_l, 
+                          data_l, mpi_sreqs, 
+                          mpi_rreqs, send_offsets, recv_offsets,
+                          mpi_types, t, toutput);
+    calculate_matrix_test(data_l, mpi_rank_l);
   }
-    // if t is a multiple of touput, write to file (not the ghost cells!)
-    //    write results
 
     MPI_Finalize();
     return EXIT_SUCCESS;
