@@ -6,13 +6,14 @@
 #include "mpi.h"
 #include <math.h>
 //#define DEBUG
-#define ALPHA .0001
+#define ALPHA .000001
+//#define OUTPUT3D
 #define XMAX 2.
 #define PROCS_PER_DIM 2
 #define IMAX 100 //1000
 #define DT .01
-#define TMAX 1000
-#define TOUTPUT 1
+#define TMAX 100
+#define TOUTPUT 10
 #define NDIMS 3
 #define SENDTAG 999
 #define DEBUGRANK 0
@@ -49,9 +50,6 @@ void print_mean_std(vector<double> means, vector<double> vars, int mpi_rank_l)
 
 }
 
-
-
-
 void print_output(Matrix3d<double> &M, int mpi_rank_l,
                    MPI_Datatype * io_subarray, MPI_Datatype * interior,
                    int timestep, MPI_Datatype *io_sub_xslice, MPI_Datatype *xslice,
@@ -66,19 +64,25 @@ void print_output(Matrix3d<double> &M, int mpi_rank_l,
   char filename_2d[80], filename_3d[80];
 
   snprintf(filename_2d, sizeof(filename_2d), "output/heat_output_2d_%d.bin", timestep);
-  // snprintf(filename_3d, sizeof(filename_3d), "output/heat_output_3d_%d.bin", timestep);
+  
+  #ifdef OUTPUT3D
+  snprintf(filename_3d, sizeof(filename_3d), "output/heat_output_3d_%d.bin", timestep);
 // do stuff
   #ifdef DEBUG
-  cout<<mpi_rank_l<<" printing  at time "<<timestep<<endl;  
-  #endif
-  // MPI_File_open(MPI_COMM_WORLD, filename_3d,
-  //               MPI_MODE_CREATE|MPI_MODE_WRONLY,
-  //               MPI_INFO_NULL, &mpi_file);
-  // MPI_File_set_view(mpi_file, 0, MPI_DOUBLE, *io_subarray, 
-  //                    "native", MPI_INFO_NULL);
+    cout<<mpi_rank_l<<" printing  at time "<<timestep<<endl;  
+    #endif
 
-  // MPI_File_write_all(mpi_file, &(M[0]), 1, *interior, &mpi_status);
-  // MPI_File_close(&mpi_file);
+    #ifdef OUTPUT3D
+    MPI_File_open(MPI_COMM_WORLD, filename_3d,
+                  MPI_MODE_CREATE|MPI_MODE_WRONLY,
+                  MPI_INFO_NULL, &mpi_file);
+    MPI_File_set_view(mpi_file, 0, MPI_DOUBLE, *io_subarray, 
+                       "native", MPI_INFO_NULL);
+
+    MPI_File_write_all(mpi_file, &(M[0]), 1, *interior, &mpi_status);
+    MPI_File_close(&mpi_file);
+    #endif
+  #endif
 
   #ifdef DEBUG
   cout<<mpi_rank_l<<" finished  printing at time "<<timestep<<endl;  
@@ -96,7 +100,7 @@ void print_output(Matrix3d<double> &M, int mpi_rank_l,
  
     MPI_File_set_view(mpi_file_io, 0, MPI_DOUBLE, *io_sub_xslice, 
                       "native", MPI_INFO_NULL);
-    MPI_File_write_all(mpi_file_io, &(M[offset+2]), 1, *xslice, &mpi_status);
+    MPI_File_write_all(mpi_file_io, &(M[offset]), 1, *xslice, &mpi_status);
     // MPI_File_write_all(mpi_file_io, &(__test_buf[0]), 1, *xslice, &mpi_status);
     MPI_File_close(&mpi_file_io);
     #ifdef DEBUG
@@ -111,7 +115,7 @@ void exchange_ghost_cells_and_print(
                           MPI_Request mpi_rreqs[], int send_offsets[], int recv_offsets[],
                           MPI_Datatype *mpi_types[], int timestep, int toutput,
                           int mpi_coords_l[], MPI_Comm * mpi_io_comm,
-                          vector<double>& means, vector<double>& vars)
+                          vector<double>& means, vector<double>& vars, int procs_per_dim)
 {
   MPI_Datatype *interior = mpi_types[6];
   MPI_Datatype *io_subarray = mpi_types[7];
@@ -132,7 +136,7 @@ void exchange_ghost_cells_and_print(
       }
       else { mpi_sreqs[i] = MPI_REQUEST_NULL; }
     }
-  int xoffset = send_offsets[0];
+  int xoffset = send_offsets[0] + procs_per_dim;
   if ((timestep%toutput) == 0)
       {print_output(data_l, mpi_rank_l, io_subarray, interior, 
                     timestep, io_sub_xslice, xslice, 
@@ -226,7 +230,7 @@ int main(int argc, char **argv)
   vector<double> vars;
 
   // Check stability
-  if ( ((alpha*dt)/(dx*dx*dx)) >= (.125))
+  if ( ((alpha*dt)/(dx*dx*dx)) > (.125))
   {
     cout<<"Stability condition failed: "<<((alpha*dt)/(dx*dx*dx));
     cout<<"> .125"<<endl;
@@ -384,7 +388,7 @@ int main(int argc, char **argv)
                           data_l, mpi_sreqs, 
                           mpi_rreqs, send_offsets, recv_offsets,
                           mpi_types, t, toutput, mpi_coords_l,
-                          &mpi_io_comm, means, vars);
+                          &mpi_io_comm, means, vars, procs_per_dim);
     data_l.calc_heat_equation(dx, dt, alpha);
     // means.push_back(data_l._mean);
     // vars.push_back(data_l._var);

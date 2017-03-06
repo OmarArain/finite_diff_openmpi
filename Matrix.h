@@ -38,9 +38,9 @@ public:
 		double mu_x = mean;
 		double mu_y = mean;
 		double mu_z = mean;
-	  int xmax = _xsize-1;
-	  int ymax = _ysize-1;
-	  int zmax = _zsize-1;
+	  int xmax = _xsize;
+	  int ymax = _ysize;
+	  int zmax = _zsize;
 		double pi   = 3.14159;
 		for (int i=0; i<xmax; ++i)
 		{
