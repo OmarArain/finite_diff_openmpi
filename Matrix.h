@@ -129,6 +129,41 @@ public:
 		}
   }
 
+
+  void init_mean_var()
+  {
+  	 double sum=0; double varsum=0;
+  	 double mean, var;
+  	 double t;
+  	 int n = 0;
+  	 for (int x=1; x<_xsize-1; x++)
+  		{
+  			for (int y=1; y<_ysize-1; y++)
+  			{
+  				for (int z=1; z<_zsize-1; z++)
+  				{
+						sum += (*this)(x,y,z);
+						n++;	
+  				}
+  			}
+  		}
+  	 mean = sum / (double) n;
+  	 for (int x=1; x<_xsize-1; x++)
+  		{
+  			for (int y=1; y<_ysize-1; y++)
+  			{
+  				for (int z=1; z<_zsize-1; z++)
+  				{
+						t = (*this)(x,y,z);
+  					varsum += t;	
+  				}
+  			}
+  		}
+ 
+  		var = varsum / (double) n;
+  		this->_var = var;
+  		this-> _mean = mean;
+  }
   void calc_heat_equation(double dx, double dt, double alpha)
   {
   		double xup, xdn, yup, ydn, zup, zdn, tn0, tn1;
