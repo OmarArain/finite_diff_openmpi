@@ -1,7 +1,7 @@
 import numpy as np
 
 mean_file = "output/heat_output_mean.bin"
-var_file = "output/heat_output_std.bin" #wrongly named, they are  actually vars
+var_file = "output/heat_output_var.bin" #wrongly named, they are  actually vars
 timesteps = 200
 processes = 512
 n = 400*400*400/processes

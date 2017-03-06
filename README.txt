@@ -2,23 +2,97 @@ MPCS 51087 Homework 3
 =====================
 Omar Arain
 
-### The 3D Heat Equation
+### The 3D Heat Equation Simulator
 
-on is not met
-4.2 Analysis
-Along with your assignment, you must the submit the following:
-1. A strong scaling study for a large problem, including a graph and explanation
+Please see main.cpp and Matrix.h for my heat diffusion
+simulation.
 
+To build and run:
 
-2. A weak scaling study for a large problem, including a graph and explanation
-3. A graph of mean temperature with standard deviation vs. time for a large problem.
-4. A 2D animation of temperature vs. time for a problem run in parallel. This can be significantly smaller than the problems simulated in the other analyses. You can either submit a graphic file (an MPEG, a GIF, etc) or a script that runs an animation from some output that you also submit.
+make heat 
+mpirun -n <num_nodes> ./heat <gridpoints_per_dim> <dt>
+					<max_timesteps> <toutput> <procs_per_dim>
+e.g.
+mpirun -n 8 ./heat 100 .01 25 5 2
 
+would run the simulation with 100 gridpoints per side (100x100x100),
+with dt = .01 and 100 total timesteps (i.e. t ranges from 0 to 1),
+and would output/write to file every 5 timesteps.  Additionally,
+it would have 2 processors per dimension (2*2*2 procs total).
 
+image.py is used  to create images from the output files, 
+and puts them in the images directory.
+
+mean_var.py is used to generate lists of means and 
+variances from the output files.
+
+Both of these python scripts are "fragile" and have parameters
+that need to be changed depending on what files are in the 
+output directory.
+
+If the processors per dim and the mpi num_nodes parameters are
+not consistent, the program will exit.
+
+The real range of the matrix is 0 to 2 for all dimensions,
+and the alpha value is .000001.  These are coded as macro
+#defines in main.cpp (XMAX and ALPHA).
+
+The program outputs a 2d slice of the matrix at every toutput
+timestep as a seperate .bin file in the output directory. 
+These are named "heat_output_2d_T.bin", where T is the timestep.
+Additioanlly, it also creates heat_output_mean.bin and heat_output_var.bin
+
+The program can also output the full global matrix at every toutput,
+if it is compiled with -DOUTPUT3D.  However this is quite memory and
+i/o intensive for even modest size matrices (200x200x200).
+
+My 3d matrices output nice looking values, however my 2d slices 
+contain some artifacts along some of the borders of some of the
+submatrices, which I have yet to resolve.
 
 
 Analysis:
-1. 
+
+I ran this analysis using:
+
+sinteractive --partition=broadwl --nodes=64 --ntasks-per-node=16
+
+1. Please see plots/weak_scaling_plot.png.
+
+The weak scaling study shows that the processing time goes up as the number of
+processes go up, given that the problem size grows proportionately.  However,
+I notice spikes at 27 and 125 processes.  I think this is because 8 processes
+can exactly fit on one node, and 64 can fit exactly on 4 nodes, and thus are
+able to minimize network traffic. However, 27 and 125 processes are less able
+to benefit from that optimization, since it is not clear how they would be
+able to efficiently "fit" to minimize the network usage.
+
+Additionally, the I think line is trending up because of the i/o operations
+involved - each process has to coordinate with every other process for
+collective io - additionally, the larger the problem size, the more data to be
+written, and the i/o hardware does not scale up with the number of processes.
+
+2. Please see plots/strong_scaling_plot.png
+
+The strong scaling study shows that the processing time decreases quickly as
+the number of processes goes up, but start to slowly increas again around 512
+processes.  The trendline initially decreases quickly because of the normal
+benefits of parrellism.  I think it starts to increase again because of the
+added overhead of i/o - each process does i/o, and at some point the i/o
+overhead outweighs the benefits.
+
+3. Please see plots/temp_vs_time_plot.png
+
+Since I ran this for a large problem size, I had to use a small timestep,
+which makes changes in the plot hard to see.  The mean temperature decreases
+with time, but the standard deviation is increasing slightly, which goes
+against my intuition.
+
+4. Please see plots/heat.gif.
+
+
+
+WEAK SCALING DATA 
 [oarain@midway2-0044 mpcs51087_hw3_oarain]$ mpirun -n 8 ./heat 200 .001 100 5 2
 mat size: 200, timesteps: 100, num_processors: 8, total_runtime(s): 9.49
 [oarain@midway2-0044 mpcs51087_hw3_oarain]$ mpirun -n 27 ./heat 300 .001 100 5 3
@@ -41,8 +115,7 @@ mat size: 900, timesteps: 100, num_processors: 1000, total_runtime(s): 24.08
 mat size: 1000, timesteps: 100, num_processors: 1000, total_runtime(s): 27.98
 
 
-2.
-
+STRONG SCALING DATA
 [oarain@midway2-0044 mpcs51087_hw3_oarain]$ mpirun -n 8 ./heat 400 .001 100 5 2
 mat size: 400, timesteps: 100, num_processors: 8, total_runtime(s): 77.48
 [oarain@midway2-0044 mpcs51087_hw3_oarain]$ mpirun -n 27 ./heat 400 .001 100 5 3

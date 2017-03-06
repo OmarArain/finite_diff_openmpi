@@ -31,7 +31,7 @@ void print_mean_std(vector<double> means, vector<double> vars, int mpi_rank_l)
   MPI_Type_get_extent (MPI_DOUBLE, &lb, &sz_dbl);
     MPI_Status mpi_status;
   snprintf(filename_mean, sizeof(filename_mean), "output/heat_output_mean.bin");
-  snprintf(filename_vars, sizeof(filename_vars), "output/heat_output_std.bin");
+  snprintf(filename_vars, sizeof(filename_vars), "output/heat_output_var.bin");
   MPI_File_open(MPI_COMM_WORLD, filename_mean,
                 MPI_MODE_CREATE|MPI_MODE_WRONLY,
                 MPI_INFO_NULL, &mpi_file_mean);
