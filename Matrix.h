@@ -99,12 +99,18 @@ public:
   void calc_heat_equation(double dx, double dt, double alpha)
   {
   		double xup, xdn, yup, ydn, zup, zdn, tn0, tn1;
+  		Matrix3d <T> M_new(_xsize, _ysize, _zsize);
+  		double sum=0,  varsum=0;
+  		int n=0;
+  		double mean, var;
+
   		for (int x=1; x<_xsize-1; x++)
   		{
   			for (int y=1; y<_ysize-1; y++)
   			{
   				for (int z=1; z<_zsize-1; z++)
   				{
+
   					xup = (*this)(x+1, y, z);
   					xdn = (*this)(x-1, y, z);
   					yup = (*this)(x, y+1, z);
@@ -114,14 +120,36 @@ public:
   					tn0 = (*this)(x,y,z);
   					tn1 = tn0+ ((alpha*dt)/(dx*dx)) 
   								* (xup+xdn+yup+ydn+zup+zdn-6*tn0);
-  					(*this)(x,y,z) = tn1;
+  					M_new(x,y,z) =tn1; 
+  					n++;
+  					sum+=tn1;
   				}
   			}
   		}
+
+  		mean = sum / (double) n;
+
+  	 for (int x=1; x<_xsize-1; x++)
+  		{
+  			for (int y=1; y<_ysize-1; y++)
+  			{
+  				for (int z=1; z<_zsize-1; z++)
+  				{
+  					tn1 = M_new(x,y,z);
+  					varsum += (tn1-mean)*(tn1-mean);
+						(*this)(x,y,z) = M_new(x,y,z);
+  					
+  				}
+  			}
+  		}
+  		var = varsum / (double) n;
+  		this->_var = var;
+  		this-> _mean = mean;
   }
   size_t xsize(){return _xsize;};
   size_t ysize(){return _ysize;};
   size_t zsize(){return _zsize;};
+  double _mean, _var;
 private:
 	size_t _xsize, _ysize, _zsize;
 };
@@ -135,7 +163,6 @@ void print_xslice(Matrix3d<double> &M, int xcoord)
 		for (int z=0; z<M.zsize(); z++)
 		{
 			cout<<M(xcoord, y, z)<<',';
-
 		}
 		cout<<endl;
 	}

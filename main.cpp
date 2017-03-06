@@ -5,13 +5,13 @@
 #include "Matrix.h"
 #include "mpi.h"
 #include <math.h>
-#define DEBUG
-#define ALPHA .000001
+//#define DEBUG
+#define ALPHA .0001
 #define XMAX 2.
 #define PROCS_PER_DIM 2
 #define IMAX 100 //1000
-#define DT 1
-#define TMAX 100
+#define DT .01
+#define TMAX 1000
 #define TOUTPUT 1
 #define NDIMS 3
 #define SENDTAG 999
@@ -23,40 +23,71 @@ using namespace std;
 
 void print_output(Matrix3d<double> &M, int mpi_rank_l,
                    MPI_Datatype * io_subarray, MPI_Datatype * interior,
-                   int timestep)
+                   int timestep, MPI_Datatype *io_sub_xslice, MPI_Datatype *xslice,
+                   int offset, int mpi_coords_l[], MPI_Comm * mpi_io_comm)
 {
-  #ifdef DEBUG
-   cout<<mpi_rank_l<<" printing at time "<<timestep<<endl;  
-  #endif
-  MPI_File mpi_file;
-  MPI_Status mpi_status;
-  char filename[80];
-  snprintf(filename, sizeof(filename), "output/heat_output_%d.bin", timestep);
-// do stuff
 
-  MPI_File_open(MPI_COMM_WORLD, filename,
+  MPI_File mpi_file, mpi_file_io;
+  MPI_Status mpi_status;
+  // double __test_buf[1000];
+  // for(int i=0;i<1000;i++) __test_buf[i]= mpi_rank_l;
+  char filename_2d[80], filename_3d[80];
+  snprintf(filename_2d, sizeof(filename_2d), "output/heat_output_2d_%d.bin", timestep);
+  snprintf(filename_3d, sizeof(filename_3d), "output/heat_output_3d_%d.bin", timestep);
+// do stuff
+    #ifdef DEBUG
+   cout<<mpi_rank_l<<" printing  at time "<<timestep<<endl;  
+  #endif
+  MPI_File_open(MPI_COMM_WORLD, filename_3d,
                 MPI_MODE_CREATE|MPI_MODE_WRONLY,
                 MPI_INFO_NULL, &mpi_file);
   MPI_File_set_view(mpi_file, 0, MPI_DOUBLE, *io_subarray, 
                      "native", MPI_INFO_NULL);
 
+  
   MPI_File_write_all(mpi_file, &(M[0]), 1, *interior, &mpi_status);
-
   MPI_File_close(&mpi_file);
-
-  #ifdef DEBUG
-   cout<<mpi_rank_l<<" finished printing at time "<<timestep<<endl;  
+    #ifdef DEBUG
+   cout<<mpi_rank_l<<" finished  printing at time "<<timestep<<endl;  
   #endif
+
+  if (mpi_coords_l[0] == 0 )
+  {
+    #ifdef DEBUG
+   cout<<mpi_rank_l<<" printing xslice at time "<<timestep<<endl;  
+  #endif
+    MPI_File_open(*mpi_io_comm, filename_2d,
+                MPI_MODE_CREATE|MPI_MODE_WRONLY,
+                MPI_INFO_NULL, &mpi_file_io);
+ 
+    MPI_File_set_view(mpi_file_io, 0, MPI_DOUBLE, *io_sub_xslice, 
+                      "native", MPI_INFO_NULL);
+    MPI_File_write_all(mpi_file_io, &(M[offset]), 1, *xslice, &mpi_status);
+    // MPI_File_write_all(mpi_file_io, &(__test_buf[0]), 1, *xslice, &mpi_status);
+    MPI_File_close(&mpi_file_io);
+    #ifdef DEBUG
+   cout<<mpi_rank_l<<" finished xslice printing at time "<<timestep<<endl;  
+  #endif
+  }
+
+
+  //MPI_Barrier(MPI_COMM_WORLD);
+
+
+
 }
 
 void exchange_ghost_cells_and_print(
                           int * mpi_nbrs[], int mpi_rank_l, 
                           Matrix3d<double>& data_l, MPI_Request mpi_sreqs[], 
                           MPI_Request mpi_rreqs[], int send_offsets[], int recv_offsets[],
-                          MPI_Datatype *mpi_types[], int timestep, int toutput)
+                          MPI_Datatype *mpi_types[], int timestep, int toutput,
+                          int mpi_coords_l[], MPI_Comm * mpi_io_comm)
 {
   MPI_Datatype *interior = mpi_types[6];
   MPI_Datatype *io_subarray = mpi_types[7];
+  MPI_Datatype *io_sub_xslice = mpi_types[8];
+  MPI_Datatype *xslice = mpi_types[0];
   #ifdef DEBUG
    cout<<mpi_rank_l<<" sending at time "<<timestep<<endl;  
   #endif
@@ -64,7 +95,6 @@ void exchange_ghost_cells_and_print(
     {
       if(*(mpi_nbrs[i]) >= 0 )
       {
-        cout<<i<<":"<<send_offsets[i]<<endl;
         int offset = send_offsets[i];
         MPI_Datatype *mpi_type = mpi_types[i];
         MPI_Isend(&(data_l[offset]), 1, *mpi_type, *(mpi_nbrs[i]),
@@ -73,8 +103,10 @@ void exchange_ghost_cells_and_print(
       else { mpi_sreqs[i] = MPI_REQUEST_NULL; }
     }
 
-  // if ((timestep%toutput) == 0)
-  //     print_output(data_l, mpi_rank_l, io_subarray, interior, timestep);
+  if ((timestep%toutput) == 0)
+      print_output(data_l, mpi_rank_l, io_subarray, interior, 
+                    timestep, io_sub_xslice, xslice, 
+                    send_offsets[0], mpi_coords_l, mpi_io_comm);
   
   #ifdef DEBUG
    cout<<mpi_rank_l<<" recving at time "<<timestep<<endl;  
@@ -174,7 +206,7 @@ int main(int argc, char **argv)
   /* MPI related vars */
   int mpi_rank_l;
   int mpi_size;
-  MPI_Comm mpi_comm;
+  MPI_Comm mpi_comm, mpi_io_comm;
   int mpi_cart_dim[NDIMS] = { procs_per_dim, 
                           procs_per_dim, 
                           procs_per_dim};
@@ -190,11 +222,14 @@ int main(int argc, char **argv)
                         &mpi_nbr_zup_l, &mpi_nbr_zdn_l };
   // datatypes
   MPI_Aint lb, sz_dbl;
-  MPI_Datatype xslice, yslice, zslice, interior, io_subarray, zchunk;
-  MPI_Datatype * mpi_types[8] = { &xslice, &xslice,
+  MPI_Datatype xslice, yslice, zslice, 
+                interior, io_subarray,
+                 zchunk, io_sub_xslice;
+  MPI_Datatype * mpi_types[9] = { &xslice, &xslice,
                                   &yslice, &yslice,
                                   &zslice, &zslice,
-                                  &interior, &io_subarray };
+                                  &interior, &io_subarray,
+                                  &io_sub_xslice};
   //offsets of ACTUAL BORDERS OF ARRAY
   int send_offsets[6] = { (imax_l+2) * (imax_l+2) * (imax_l+2-2)+1+imax_l, // ydim*zdim*xrow
                           (imax_l+2) * (imax_l+2) * (1) + 1+imax_l,          // ydim*zdim*xrow
@@ -230,19 +265,16 @@ int main(int argc, char **argv)
   MPI_Cart_create(MPI_COMM_WORLD, ndims, mpi_cart_dim, 
                   mpi_cart_period, true, &mpi_comm);
   MPI_Cart_coords(mpi_comm, mpi_rank_l, ndims, mpi_coords_l);
+  //color CANNOT BE NEGATIVE
+  MPI_Comm_split(MPI_COMM_WORLD, mpi_coords_l[0]+1, mpi_rank_l, &mpi_io_comm);
   // get neighbors
   MPI_Cart_shift(mpi_comm, 0, 1, &mpi_nbr_xdn_l, &mpi_nbr_xup_l);
   MPI_Cart_shift(mpi_comm, 1, 1, &mpi_nbr_ydn_l, &mpi_nbr_yup_l);
   MPI_Cart_shift(mpi_comm, 2, 1, &mpi_nbr_zdn_l, &mpi_nbr_zup_l);
 
-  // Create slice datatypes, interior, and io_subarray for filewriting
-  
-  // MPI_Type_vector(1, (imax_l+2)*(imax_l+2), (imax_l+2)*(imax_l+2), 
-  //                 MPI_DOUBLE, &xslice);
-  // MPI_Type_vector((imax_l+2), (imax_l+2), (imax_l+2)*(imax_l+2),
-  //                 MPI_DOUBLE, &yslice);
-  // MPI_Type_vector((imax_l+2)*(imax_l*2), 1, (imax_l+2), 
-  //                 MPI_DOUBLE, &zslice);
+  // Create slice datatypes, interior, and io_subarray
+  // and io_sub_xslice for filewriting
+
   MPI_Type_vector(imax_l, imax_l, (imax_l+2), 
                   MPI_DOUBLE, &xslice);
   MPI_Type_vector(imax_l, imax_l, (imax_l+2)*(imax_l+2),
@@ -268,12 +300,22 @@ int main(int argc, char **argv)
   MPI_Type_create_subarray(3, global_sizes_f, local_sizes_f, 
                           starts_f, MPI_ORDER_C, 
                           MPI_DOUBLE, &io_subarray);
+  int global_sizes_xs[2] = { imax_l*procs_per_dim, 
+                            imax_l*procs_per_dim};
+  int local_sizes_xs[2] = {imax_l, imax_l};
+  int starts_xs[2] = { mpi_coords_l[2]*imax_l, 
+                       mpi_coords_l[1]*imax_l}; 
+  MPI_Type_create_subarray(2, global_sizes_xs, local_sizes_xs, 
+                          starts_xs, MPI_ORDER_C, 
+                          MPI_DOUBLE, &io_sub_xslice);
 
   MPI_Type_commit(&xslice);
   MPI_Type_commit(&yslice);
   MPI_Type_commit(&zslice);
   MPI_Type_commit(&interior);
   MPI_Type_commit(&io_subarray);
+  MPI_Type_commit(&io_sub_xslice);
+
 
 //FILE IO TEST
 
@@ -306,13 +348,15 @@ int main(int argc, char **argv)
                           mpi_nbrs, mpi_rank_l, 
                           data_l, mpi_sreqs, 
                           mpi_rreqs, send_offsets, recv_offsets,
-                          mpi_types, t, toutput);
+                          mpi_types, t, toutput, mpi_coords_l,
+                          &mpi_io_comm);
     data_l.calc_heat_equation(dx, dt, alpha);
-    end_time = MPI_Wtime();
-    if(mpi_rank_l==0)
-    printf("problem size: %d, num_processors: %d, total_runtime(s): %.2f\n", 
-            imax, mpi_size, (double)(end_time-start_time));
+
   }
-    MPI_Finalize();
-    return EXIT_SUCCESS;
+  end_time = MPI_Wtime();
+  if(mpi_rank_l==0)
+  printf("mat size: %d, timesteps: %d, num_processors: %d, total_runtime(s): %.2f\n", 
+          imax, tmax, mpi_size, (double)(end_time-start_time));
+  MPI_Finalize();
+  return EXIT_SUCCESS;
  }
