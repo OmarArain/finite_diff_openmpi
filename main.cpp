@@ -56,13 +56,14 @@ void print_output(Matrix3d<double> &M, int mpi_rank_l,
     #ifdef DEBUG
    cout<<mpi_rank_l<<" printing xslice at time "<<timestep<<endl;  
   #endif
+      // M.set_test_interior(0, 0, 0, 0, 0, 0);
     MPI_File_open(*mpi_io_comm, filename_2d,
                 MPI_MODE_CREATE|MPI_MODE_WRONLY,
                 MPI_INFO_NULL, &mpi_file_io);
  
     MPI_File_set_view(mpi_file_io, 0, MPI_DOUBLE, *io_sub_xslice, 
                       "native", MPI_INFO_NULL);
-    MPI_File_write_all(mpi_file_io, &(M[offset]), 1, *xslice, &mpi_status);
+    MPI_File_write_all(mpi_file_io, &(M[offset+2]), 1, *xslice, &mpi_status);
     // MPI_File_write_all(mpi_file_io, &(__test_buf[0]), 1, *xslice, &mpi_status);
     MPI_File_close(&mpi_file_io);
     #ifdef DEBUG
@@ -88,6 +89,7 @@ void exchange_ghost_cells_and_print(
   MPI_Datatype *io_subarray = mpi_types[7];
   MPI_Datatype *io_sub_xslice = mpi_types[8];
   MPI_Datatype *xslice = mpi_types[0];
+
   #ifdef DEBUG
    cout<<mpi_rank_l<<" sending at time "<<timestep<<endl;  
   #endif
@@ -102,11 +104,11 @@ void exchange_ghost_cells_and_print(
       }
       else { mpi_sreqs[i] = MPI_REQUEST_NULL; }
     }
-
+  int xoffset = send_offsets[0];
   if ((timestep%toutput) == 0)
       print_output(data_l, mpi_rank_l, io_subarray, interior, 
                     timestep, io_sub_xslice, xslice, 
-                    send_offsets[0], mpi_coords_l, mpi_io_comm);
+                    xoffset, mpi_coords_l, mpi_io_comm);
   
   #ifdef DEBUG
    cout<<mpi_rank_l<<" recving at time "<<timestep<<endl;  
@@ -303,8 +305,8 @@ int main(int argc, char **argv)
   int global_sizes_xs[2] = { imax_l*procs_per_dim, 
                             imax_l*procs_per_dim};
   int local_sizes_xs[2] = {imax_l, imax_l};
-  int starts_xs[2] = { mpi_coords_l[2]*imax_l, 
-                       mpi_coords_l[1]*imax_l}; 
+  int starts_xs[2] = { mpi_coords_l[1]*imax_l, 
+                       mpi_coords_l[2]*imax_l}; 
   MPI_Type_create_subarray(2, global_sizes_xs, local_sizes_xs, 
                           starts_xs, MPI_ORDER_C, 
                           MPI_DOUBLE, &io_sub_xslice);
@@ -335,6 +337,9 @@ int main(int argc, char **argv)
   data_l.set_gaussian_interior(mean_t, var_t, dx, 
                                 _i_xstart, _i_ystart, _i_zstart);
   data_l.reset_boundaries(boundary_t);
+
+
+  // data_l.reset_boundaries(boundary_t);
   #ifdef DEBUG
    cout<<mpi_rank_l<<" MATRIX INITIALIZED"<<endl;  
   #endif

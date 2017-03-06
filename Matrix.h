@@ -60,6 +60,39 @@ public:
 			}
 	}
   }
+
+  void set_test_interior(double mean, double var, double gridsize,
+  													int xstart_ix, int ystart_ix, int zstart_ix)
+  {
+		double sigma_x = var;
+		double sigma_y = var;
+		double sigma_z = var;
+		double mu_x = mean;
+		double mu_y = mean;
+		double mu_z = mean;
+	  int xmax = _xsize;
+	  int ymax = _ysize;
+	  int zmax = _zsize;
+		double pi   = 3.14159;
+		cout<<"xmax: "<<xmax;
+		for (int i=0; i<xmax; i++)
+		{
+			double _x = (i+xstart_ix)*gridsize;
+			double _x_term = (_x - mu_x)*(_x - mu_x) * sigma_x;
+			for(int j=0; j<ymax; j++)
+			{	
+				double _y = (j+ystart_ix)*gridsize;
+				double _y_term = (_y - mu_y)*(_y - mu_y) * sigma_y;
+				for(int k=0; k<zmax; k++)
+				{	
+					double _z = (k+zstart_ix)*gridsize;
+					double _z_term = (_z - mu_z)*(_z - mu_z) * sigma_z;
+					(*this)(i,j,k) = (i)*100+(j)*10+(k);
+				}
+			}
+	}
+  }
+
   void reset_boundaries(double boundary_value=0)
   {
   	int xmax = _xsize;

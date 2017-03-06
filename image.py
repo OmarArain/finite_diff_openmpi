@@ -5,7 +5,7 @@ import imageio
 
 # 3d files
 filenames = []
-for i in range(0,100,5):
+for i in range(0,2,1):
 	outputdir = "output/"
 	imagedir = "images/"
 	file = "heat_output_3d_"+str(i)
@@ -27,7 +27,7 @@ for i in range(0,100,5):
 
 #2d files
 filenames = []
-for i in range(0,100, 5):
+for i in range(0,2, 1):
 	outputdir = "output/"
 	imagedir = "images/"
 	file = "heat_output_2d_"+str(i)
