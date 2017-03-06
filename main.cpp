@@ -29,6 +29,7 @@ void print_output(Matrix3d<double> &M, int mpi_rank_l,
 
   MPI_File mpi_file, mpi_file_io;
   MPI_Status mpi_status;
+
   // double __test_buf[1000];
   // for(int i=0;i<1000;i++) __test_buf[i]= mpi_rank_l;
   char filename_2d[80], filename_3d[80];
